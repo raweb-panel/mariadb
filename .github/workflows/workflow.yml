@@ -78,5 +78,5 @@ jobs:
           UPLOAD_USER: ${{ secrets.UPLOAD_USER }}
           UPLOAD_PASS: ${{ secrets.UPLOAD_PASS }}
           SQL_VERSION_MAJOR: '11.8'
-          BUILD_CORES: '32'
+          BUILD_CORES: '70'
           DOMAIN: 'repo.julio.al'

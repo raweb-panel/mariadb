@@ -1,10 +1,16 @@
 #!/bin/bash
-set -e
-CORES=${BUILD_CORES:-$(nproc)}
 
 if [ -z "$UPLOAD_USER" ] || [ -z "$UPLOAD_PASS" ]; then
     echo "Missing UPLOAD_USER or UPLOAD_PASS"
     exit 1
+fi
+
+TOTAL_CORES=$(nproc)
+if [[ "$BUILD_CORES" =~ ^[0-9]+$ ]] && [ "$BUILD_CORES" -le 100 ]; then
+  CORES=$(( TOTAL_CORES * BUILD_CORES / 100 ))
+  [ "$CORES" -lt 1 ] && CORES=1
+else
+  CORES=${BUILD_CORES:-$TOTAL_CORES}
 fi
 
 dnf -y update > /dev/null 2>&1
