@@ -57,7 +57,6 @@ jobs:
             folder: packages
             script: ./scripts/deb/ubuntu/24.04.sh
 
-
     container:
       image: ${{ matrix.image }}
       options: --privileged
@@ -81,4 +80,3 @@ jobs:
           SQL_VERSION_MAJOR: '11.8'
           BUILD_CORES: '32'
           DOMAIN: 'repo.julio.al'
-
