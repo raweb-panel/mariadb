@@ -59,6 +59,6 @@ jobs:
           UPLOAD_USER: ${{ secrets.UPLOAD_USER }}
           UPLOAD_PASS: ${{ secrets.UPLOAD_PASS }}
           SQL_VERSION_MAJOR: '11.8'
-          SQL_PACK_VERSION: ${{ env.PHP_PACK_VERSION }}
+          SQL_PACK_VERSION: ${{ env.SQL_PACK_VERSION }}
           BUILD_CORES: '70'
           DOMAIN: 'de.repo.raweb.al'
