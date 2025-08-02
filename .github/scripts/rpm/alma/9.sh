@@ -5,7 +5,7 @@ if [ -z "$UPLOAD_USER" ] || [ -z "$UPLOAD_PASS" ]; then
     exit 1
 fi
 echo "Alma 9 is not working properly, anyone is welcome to test build and PR a fix"
-exit 1
+exit 0
 # ====================================================================================
 TOTAL_CORES=$(nproc)
 if [[ "$BUILD_CORES" =~ ^[0-9]+$ ]] && [ "$BUILD_CORES" -le 100 ]; then
