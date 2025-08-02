@@ -5,8 +5,6 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  schedule:
-    - cron: '0 0 1 * *'
 
 jobs:
   build:
@@ -15,47 +13,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: debian12
-            image: debian:12
-            code: bookworm
-            repo: debian
-            folder: packages
-            script: ./scripts/deb/debian/12.sh
-
-          - name: debian11
-            image: debian:11
-            code: bullseye
-            repo: debian
-            folder: packages
-            script: ./scripts/deb/debian/11.sh
-
-          - name: alma8
-            image: almalinux:8
-            code: el8
-            repo: alma
-            folder: packages
-            script: ./scripts/rpm/alma/8.sh
-
           - name: alma9
             image: almalinux:9
             code: el9
             repo: alma
             folder: packages
-            script: ./scripts/rpm/alma/9.sh
+            script: .github/scripts/rpm/alma/9.sh
 
-          - name: ubuntu2204
-            image: ubuntu:22.04
-            code: jammy
-            repo: ubuntu
+          - name: debian12
+            image: debian:12
+            code: bookworm
+            repo: debian
             folder: packages
-            script: ./scripts/deb/ubuntu/22.04.sh
+            script: .github/scripts/deb/debian/12.sh
 
           - name: ubuntu2404
             image: ubuntu:24.04
             code: noble
             repo: ubuntu
             folder: packages
-            script: ./scripts/deb/ubuntu/24.04.sh
+            script: .github/scripts/deb/ubuntu/24.04.sh
 
     container:
       image: ${{ matrix.image }}
@@ -64,6 +41,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Read version from VERSION file
+        id: version
+        run: echo "SQL_PACK_VERSION=$(cat VERSION)" >> $GITHUB_ENV
 
       - name: Run Build Script
         run: |
@@ -78,5 +59,6 @@ jobs:
           UPLOAD_USER: ${{ secrets.UPLOAD_USER }}
           UPLOAD_PASS: ${{ secrets.UPLOAD_PASS }}
           SQL_VERSION_MAJOR: '11.8'
+          SQL_PACK_VERSION: ${{ env.PHP_PACK_VERSION }}
           BUILD_CORES: '70'
-          DOMAIN: 'repo.julio.al'
+          DOMAIN: 'de.repo.raweb.al'

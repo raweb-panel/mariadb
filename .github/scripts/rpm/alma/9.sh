@@ -1,10 +1,12 @@
 #!/bin/bash
-
+# ====================================================================================
 if [ -z "$UPLOAD_USER" ] || [ -z "$UPLOAD_PASS" ]; then
     echo "Missing UPLOAD_USER or UPLOAD_PASS"
     exit 1
 fi
-
+echo "Alma 9 is not working properly, anyone is welcome to test build and PR a fix"
+exit 1
+# ====================================================================================
 TOTAL_CORES=$(nproc)
 if [[ "$BUILD_CORES" =~ ^[0-9]+$ ]] && [ "$BUILD_CORES" -le 100 ]; then
   CORES=$(( TOTAL_CORES * BUILD_CORES / 100 ))
@@ -12,37 +14,37 @@ if [[ "$BUILD_CORES" =~ ^[0-9]+$ ]] && [ "$BUILD_CORES" -le 100 ]; then
 else
   CORES=${BUILD_CORES:-$TOTAL_CORES}
 fi
-
+# ====================================================================================
 dnf -y update > /dev/null 2>&1
 dnf install --allowerasing -y epel-release curl > /dev/null 2>&1
-# -------------------------------------------------------------
+# ====================================================================================
 RPM_PACKAGE_NAME="raweb-mariadb"
 RPM_ARCH="x86_64"
 RPM_DIST="$BUILD_CODE"
-# -------------------------------------------------------------
+# ====================================================================================
 VERSION_URL="https://raw.githubusercontent.com/MariaDB/server/refs/heads/$SQL_VERSION_MAJOR/VERSION"
 VERSION_CONTENT=$(curl -fsSL "$VERSION_URL")
 RPM_VERSION="$(echo "$VERSION_CONTENT" | grep MYSQL_VERSION_MAJOR | cut -d= -f2).$(echo "$VERSION_CONTENT" | grep MYSQL_VERSION_MINOR | cut -d= -f2).$(echo "$VERSION_CONTENT" | grep MYSQL_VERSION_PATCH | cut -d= -f2)"
-RPM_PACKAGE_FILE_NAME="${RPM_PACKAGE_NAME}-${RPM_VERSION}-${RPM_DIST}.${RPM_ARCH}.rpm"
+RPM_PACKAGE_FILE_NAME="${RPM_PACKAGE_NAME}-${SQL_PACK_VERSION}-${RPM_DIST}.${RPM_ARCH}.rpm"
 RPM_REPO_URL="https://$DOMAIN/$UPLOAD_USER/$BUILD_REPO/${RPM_DIST}/"
 if curl -s "$RPM_REPO_URL" | grep -q "$RPM_PACKAGE_FILE_NAME"; then
     echo "✅ Package $RPM_PACKAGE_FILE_NAME already exists. Skipping build."
     exit 0
 fi
-# -------------------------------------------------------------
+# ====================================================================================
 echo "Installing requirements..." && dnf install --allowerasing -y \
     make gcc gcc-c++ cmake openssl-devel pcre2-devel bison readline-devel zlib-devel \
     pcre-devel ncurses-devel libaio-devel libcurl-devel pkgconfig git sudo wget curl zip unzip jq rsync \
     rpm-build rpmdevtools > /dev/null 2>&1
-
+# ====================================================================================
 if ! command -v cmake >/dev/null 2>&1; then
     ln -sf /usr/bin/cmake3 /usr/local/bin/cmake
 fi
-
+# ====================================================================================
 git clone --depth=1 --branch $SQL_VERSION_MAJOR https://github.com/MariaDB/server.git > /dev/null 2>&1
 cd server/; git submodule update --init --recursive > /dev/null 2>&1
 id raweb 2>/dev/null || useradd -m raweb
-
+# ====================================================================================
 cmake . \
   -DCMAKE_INSTALL_PREFIX=/raweb/apps/mariadb/core \
   -DSYSCONFDIR=/raweb/apps/mariadb/core/etc \
@@ -59,10 +61,10 @@ cmake . \
   -DPKG_CONFIG_PATH=/usr/lib64/pkgconfig \
   -DWITHOUT_TOKUDB=1 \
   -DWITH_WSREP=OFF > /dev/null 2>&1
-
+# ====================================================================================
 make -j${CORES} > /dev/null 2>&1
 make install > /dev/null 2>&1
-
+# ====================================================================================
 mkdir -p /raweb/apps/mariadb/data
 chown -R raweb: /raweb/apps/mariadb/data
 cat > /raweb/apps/mariadb/core/my.cnf <<EOF
@@ -79,7 +81,7 @@ bind-address=127.0.0.1
 port=13306
 log-error=/raweb/apps/mariadb/data/mysqld.log
 EOF
-
+# ====================================================================================
 mkdir -p /etc/systemd/system
 cat > /etc/systemd/system/raweb-mariadb.service <<EOF
 [Unit]
@@ -94,22 +96,22 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 EOF
-
+# ====================================================================================
 RPM_VERSION="$(/raweb/apps/mariadb/core/bin/mariadbd --version | head -n1 | awk '{print $3}' | cut -d'-' -f1)"
 RPM_BUILD_DIR="$GITHUB_WORKSPACE/rpmbuild"
-RPM_ROOT="$RPM_BUILD_DIR/BUILDROOT/${RPM_PACKAGE_NAME}-${RPM_VERSION}.${RPM_ARCH}"
-
+RPM_ROOT="$RPM_BUILD_DIR/BUILDROOT/${RPM_PACKAGE_NAME}-${SQL_PACK_VERSION}.${RPM_ARCH}"
+# ====================================================================================
 rm -rf "$RPM_BUILD_DIR"
 mkdir -p "$RPM_BUILD_DIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 mkdir -p "$RPM_ROOT/raweb/apps/mariadb"
 mkdir -p "$RPM_ROOT/etc/systemd/system"
-
+# ====================================================================================
 cp -a /raweb/apps/mariadb/core "$RPM_ROOT/raweb/apps/mariadb/"
 cp /etc/systemd/system/raweb-mariadb.service "$RPM_ROOT/etc/systemd/system/"
-
+# ====================================================================================
 cat > "$RPM_BUILD_DIR/SPECS/${RPM_PACKAGE_NAME}.spec" <<EOF
 Name: $RPM_PACKAGE_NAME
-Version: $RPM_VERSION
+Version: $SQL_PACK_VERSION
 Release: $BUILD_CODE
 Summary: Custom MariaDB for Raweb Panel
 License: GPL
@@ -118,7 +120,7 @@ Group: Applications/Databases
 Requires: openssl readline zlib pcre ncurses libaio curl pcre2
 
 %description
-Custom MariaDB $RPM_VERSION for Raweb Panel.
+Custom MariaDB $SQL_PACK_VERSION for Raweb Panel.
 
 %post
 #!/bin/bash
@@ -221,18 +223,18 @@ exit 0
 /etc/systemd/system/raweb-mariadb.service
 
 %changelog
-* $(date "+%a %b %d %Y") Raweb Panel <cd@julio.al> - $RPM_VERSION
+* $(date "+%a %b %d %Y") Raweb Panel <cd@julio.al> - $SQL_PACK_VERSION
 - Custom MariaDB build for Raweb Panel
 EOF
-
+# ====================================================================================
 echo "%__make         /usr/bin/make -j $CORES" > ~/.rpmmacros
 rpmbuild \
   --define "_topdir $RPM_BUILD_DIR" \
   --define "_smp_mflags -j$CORES" \
   --buildroot "$RPM_ROOT" \
   -bb "$RPM_BUILD_DIR/SPECS/${RPM_PACKAGE_NAME}.spec"
-RPM_PACKAGE_FILE="$RPM_BUILD_DIR/RPMS/x86_64/${RPM_PACKAGE_NAME}-${RPM_VERSION}-${BUILD_CODE}.x86_64.rpm"
-
-echo "$UPLOAD_PASS" > $GITHUB_WORKSPACE/.rsync
-chmod 600 $GITHUB_WORKSPACE/.rsync
-rsync -avz --password-file=$GITHUB_WORKSPACE/.rsync $RPM_PACKAGE_FILE rsync://$UPLOAD_USER@$DOMAIN/$BUILD_FOLDER/$BUILD_REPO/$BUILD_CODE/
+RPM_PACKAGE_FILE="$RPM_BUILD_DIR/RPMS/x86_64/${RPM_PACKAGE_NAME}-${SQL_PACK_VERSION}-${BUILD_CODE}.x86_64.rpm"
+# ====================================================================================
+echo "$UPLOAD_PASS" > $GITHUB_WORKSPACE/.rsync; chmod 600 $GITHUB_WORKSPACE/.rsync
+rsync -avz --password-file=$GITHUB_WORKSPACE/.rsync $RPM_PACKAGE_FILE rsync://$UPLOAD_USER@$DOMAIN/$BUILD_FOLDER/$BUILD_REPO/$BUILD_CODE/; rm -rf $GITHUB_WORKSPACE/.rsync
+# ====================================================================================

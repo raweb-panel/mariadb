@@ -1,10 +1,10 @@
 #!/bin/bash
-
+set -e
 if [ -z "$UPLOAD_USER" ] || [ -z "$UPLOAD_PASS" ]; then
     echo "Missing UPLOAD_USER or UPLOAD_PASS"
     exit 1
 fi
-
+# ====================================================================================
 TOTAL_CORES=$(nproc)
 if [[ "$BUILD_CORES" =~ ^[0-9]+$ ]] && [ "$BUILD_CORES" -le 100 ]; then
   CORES=$(( TOTAL_CORES * BUILD_CORES / 100 ))
@@ -12,32 +12,32 @@ if [[ "$BUILD_CORES" =~ ^[0-9]+$ ]] && [ "$BUILD_CORES" -le 100 ]; then
 else
   CORES=${BUILD_CORES:-$TOTAL_CORES}
 fi
-
+# ====================================================================================
 export DEBIAN_FRONTEND=noninteractive
-echo "Updating..." && apt-get update -y > /dev/null 2>&1
-echo "Upgrading..." && apt-get upgrade -y > /dev/null 2>&1
-echo "Installing curl..." && apt-get install curl -y > /dev/null 2>&1
-# -------------------------------------------------------------
+echo "Updating..." && apt-get update -y > /dev/null 2>&1; apt-get upgrade -y > /dev/null 2>&1
+echo "Installing curl..." && apt-get install curl jq -y > /dev/null 2>&1
+id raweb &>/dev/null || useradd -M -d /raweb -s /bin/bash raweb; mkdir -p /raweb; chown -R raweb:raweb /raweb;
+# ====================================================================================
 DEB_PACKAGE_NAME="raweb-mariadb"
 DEB_ARCH="amd64"
 DEB_DIST="$BUILD_CODE"
-# -------------------------------------------------------------
+# ====================================================================================
 VERSION_URL="https://raw.githubusercontent.com/MariaDB/server/refs/heads/$SQL_VERSION_MAJOR/VERSION"
 VERSION_CONTENT=$(curl -fsSL "$VERSION_URL")
 DEB_VERSION="$(echo "$VERSION_CONTENT" | grep MYSQL_VERSION_MAJOR | cut -d= -f2).$(echo "$VERSION_CONTENT" | grep MYSQL_VERSION_MINOR | cut -d= -f2).$(echo "$VERSION_CONTENT" | grep MYSQL_VERSION_PATCH | cut -d= -f2)"
-DEB_PACKAGE_FILE_NAME="${DEB_PACKAGE_NAME}_${DEB_VERSION}_${DEB_DIST}_${DEB_ARCH}.deb"
+DEB_PACKAGE_FILE_NAME="${DEB_PACKAGE_NAME}_${SQL_PACK_VERSION}_${DEB_DIST}_${DEB_ARCH}.deb"
 DEB_REPO_URL="https://$DOMAIN/$UPLOAD_USER/$BUILD_REPO/${DEB_DIST}/"
 if curl -s "$DEB_REPO_URL" | grep -q "$DEB_PACKAGE_FILE_NAME"; then
     echo "✅ Package $DEB_PACKAGE_FILE_NAME already exists. Skipping build."
     exit 0
 fi
-# -------------------------------------------------------------
+# ====================================================================================
 echo "Installing requirements..." && apt-get install -y build-essential cmake libssl-dev libpcre2-dev bison libreadline-dev zlib1g-dev libpcre3-dev libncurses5-dev libncursesw5-dev libaio-dev libcurl4-openssl-dev pkg-config git sudo wget zip unzip jq rsync >/dev/null 2>&1
-
+# ====================================================================================
 git clone --depth=1 --branch $SQL_VERSION_MAJOR https://github.com/MariaDB/server.git > /dev/null 2>&1
 cd server/; git submodule update --init --recursive > /dev/null 2>&1
 id raweb 2>/dev/null || useradd -m raweb
-
+# ====================================================================================
 cmake . \
   -DCMAKE_INSTALL_PREFIX=/raweb/apps/mariadb/core \
   -DSYSCONFDIR=/raweb/apps/mariadb/core/etc \
@@ -54,10 +54,10 @@ cmake . \
   -DPKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig \
   -DWITHOUT_TOKUDB=1 \
   -DWITH_WSREP=OFF > /dev/null 2>&1
-
+# ====================================================================================
 make -j${CORES} > /dev/null 2>&1
 make install > /dev/null 2>&1
-
+# ====================================================================================
 mkdir -p /raweb/apps/mariadb/data
 chown -R raweb: /raweb/apps/mariadb/data
 cat > /raweb/apps/mariadb/core/my.cnf <<EOF
@@ -74,7 +74,7 @@ bind-address=127.0.0.1
 port=13306
 log-error=/raweb/apps/mariadb/data/mysqld.log
 EOF
-
+# ====================================================================================
 mkdir -p /etc/systemd/system
 cat > /etc/systemd/system/raweb-mariadb.service <<EOF
 [Unit]
@@ -89,30 +89,30 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 EOF
-
+# ====================================================================================
 DEB_VERSION="$(/raweb/apps/mariadb/core/bin/mariadbd --version | head -n1 | awk '{print $3}' | cut -d'-' -f1)"
 DEB_BUILD_DIR="$GITHUB_WORKSPACE/debbuild"
-DEB_ROOT="$DEB_BUILD_DIR/${DEB_PACKAGE_NAME}_${DEB_VERSION}_${DEB_ARCH}"
-
+DEB_ROOT="$DEB_BUILD_DIR/${DEB_PACKAGE_NAME}_${SQL_PACK_VERSION}_${DEB_ARCH}"
+# ====================================================================================
 rm -rf "$DEB_BUILD_DIR"
 mkdir -p "$DEB_ROOT/raweb/apps/mariadb"
 mkdir -p "$DEB_ROOT/etc/systemd/system"
 mkdir -p "$DEB_ROOT/DEBIAN"
-
+# ====================================================================================
 cp -a /raweb/apps/mariadb/core "$DEB_ROOT/raweb/apps/mariadb/"
 cp /etc/systemd/system/raweb-mariadb.service "$DEB_ROOT/etc/systemd/system/"
-
+# ====================================================================================
 cat > "$DEB_ROOT/DEBIAN/control" <<EOF
 Package: $DEB_PACKAGE_NAME
-Version: $DEB_VERSION
+Version: $SQL_PACK_VERSION
 Section: database
 Priority: optional
 Architecture: $DEB_ARCH
 Maintainer: Raweb Panel <cd@julio.al>
-Description: Custom MariaDB $DEB_VERSION for Raweb Panel.
+Description: Custom MariaDB $SQL_PACK_VERSION for Raweb Panel.
 Depends: libssl3, libreadline8, zlib1g, libpcre3, libncurses6, libaio1, libcurl4, libpcre2-dev
 EOF
-
+# ====================================================================================
 cat > "$DEB_ROOT/DEBIAN/postinst" <<'EOF'
 #!/bin/bash
 set -e
@@ -209,14 +209,13 @@ MYCNF
 
 exit 0
 EOF
-
+# ====================================================================================
 chmod 755 "$DEB_ROOT/DEBIAN"
 chmod 755 "$DEB_ROOT/DEBIAN/control"
 chmod 755 "$DEB_ROOT/DEBIAN/postinst"
-
-DEB_PACKAGE_FILE="$DEB_BUILD_DIR/${DEB_PACKAGE_NAME}_${DEB_VERSION}_${BUILD_CODE}_${DEB_ARCH}.deb"
+# ====================================================================================
+DEB_PACKAGE_FILE="$DEB_BUILD_DIR/${DEB_PACKAGE_NAME}_${SQL_PACK_VERSION}_${BUILD_CODE}_${DEB_ARCH}.deb"
 dpkg-deb --build "$DEB_ROOT" "$DEB_PACKAGE_FILE"
-
-echo "$UPLOAD_PASS" > $GITHUB_WORKSPACE/.rsync
-chmod 600 $GITHUB_WORKSPACE/.rsync
-rsync -avz --password-file=$GITHUB_WORKSPACE/.rsync $DEB_PACKAGE_FILE rsync://$UPLOAD_USER@$DOMAIN/$BUILD_FOLDER/$BUILD_REPO/$BUILD_CODE/
+# ====================================================================================
+echo "$UPLOAD_PASS" > $GITHUB_WORKSPACE/.rsync; chmod 600 $GITHUB_WORKSPACE/.rsync
+rsync -avz --password-file=$GITHUB_WORKSPACE/.rsync $DEB_PACKAGE_FILE rsync://$UPLOAD_USER@$DOMAIN/$BUILD_FOLDER/$BUILD_REPO/$BUILD_CODE/; rm -rf $GITHUB_WORKSPACE/.rsync
