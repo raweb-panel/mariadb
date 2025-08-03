@@ -112,7 +112,7 @@ Priority: optional
 Architecture: $DEB_ARCH
 Maintainer: Raweb Panel <cd@julio.al>
 Description: Custom MariaDB $SQL_PACK_VERSION for Raweb Panel.
-Depends: libssl3, libreadline8, zlib1g, libpcre3, libncurses6, libaio1, libcurl4, libpcre2-dev
+Depends: libssl3t64, libreadline8t64, zlib1g, libpcre3, libncurses6, libaio1t64, libcurl4t64, libpcre2-dev
 EOF
 # ====================================================================================
 cat > "$DEB_ROOT/DEBIAN/postinst" <<'EOF'
