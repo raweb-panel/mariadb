@@ -259,7 +259,7 @@ else
     # For upgrades, run mariadb-upgrade to update system tables
     if command -v /raweb/apps/mariadb/core/bin/mariadb-upgrade >/dev/null 2>&1; then
         echo "Running mariadb-upgrade to update system tables..."
-        /raweb/apps/mariadb/core/bin/mariadb-upgrade --socket=/raweb/apps/mariadb/data/mariadb.sock --force 2>/dev/null || true
+        /raweb/apps/mariadb/core/bin/mariadb-upgrade --defaults-file=/raweb/.my.cnf --force 2>/dev/null || true
     fi
 fi
 
