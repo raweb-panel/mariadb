@@ -102,6 +102,73 @@ mkdir -p "$DEB_ROOT/DEBIAN"
 cp -a /raweb/apps/mariadb/core "$DEB_ROOT/raweb/apps/mariadb/"
 cp /etc/systemd/system/raweb-mariadb.service "$DEB_ROOT/etc/systemd/system/"
 # ====================================================================================
+cat > "$DEB_ROOT/DEBIAN/preinst" <<'EOF'
+#!/bin/bash
+set -e
+
+# Stop MariaDB service if running during upgrade
+if [ "$1" = "upgrade" ] && systemctl is-active --quiet raweb-mariadb 2>/dev/null; then
+    echo "Stopping raweb-mariadb service for upgrade..."
+    systemctl stop raweb-mariadb || true
+fi
+
+exit 0
+EOF
+# ====================================================================================
+cat > "$DEB_ROOT/DEBIAN/prerm" <<'EOF'
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove|deconfigure)
+        echo "Stopping raweb-mariadb service for removal..."
+        systemctl stop raweb-mariadb || true
+        systemctl disable raweb-mariadb || true
+        ;;
+    upgrade|failed-upgrade)
+        # Don't stop service during upgrade, preinst handles it
+        ;;
+esac
+
+exit 0
+EOF
+# ====================================================================================
+cat > "$DEB_ROOT/DEBIAN/postrm" <<'EOF'
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove)
+        echo "Package removed but preserving data directory and configuration."
+        ;;
+    purge)
+        echo "Purging raweb-mariadb package and data..."
+        systemctl stop raweb-mariadb 2>/dev/null || true
+        systemctl disable raweb-mariadb 2>/dev/null || true
+        rm -f /etc/systemd/system/raweb-mariadb.service
+        systemctl daemon-reload || true
+        
+        # Ask user before removing data
+        echo "WARNING: This will remove ALL MariaDB data and configuration!"
+        echo "Data directory: /raweb/apps/mariadb/data"
+        echo "Configuration: /raweb/.my.cnf"
+        read -p "Are you sure you want to delete all data? (yes/NO): " confirm
+        if [ "$confirm" = "yes" ]; then
+            rm -rf /raweb/apps/mariadb 2>/dev/null || true
+            rm -f /raweb/.my.cnf 2>/dev/null || true
+            echo "All data and configuration removed."
+        else
+            echo "Data and configuration preserved."
+        fi
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Don't remove anything during upgrade scenarios
+        ;;
+esac
+
+exit 0
+EOF
+# ====================================================================================
 cat > "$DEB_ROOT/DEBIAN/control" <<EOF
 Package: $DEB_PACKAGE_NAME
 Version: $SQL_PACK_VERSION
@@ -118,30 +185,60 @@ cat > "$DEB_ROOT/DEBIAN/postinst" <<'EOF'
 set -e
 mkdir -p /raweb; id raweb &>/dev/null || useradd -m -d /raweb raweb; chown -R raweb:raweb /raweb
 
-# Only initialize if data directory is empty
-if [ ! -d /raweb/apps/mariadb/data/mysql ] || [ -z "$(ls -A /raweb/apps/mariadb/data/mysql 2>/dev/null)" ]; then
-    echo "Initializing MariaDB data directory..."
+# Check if this is a fresh install or upgrade
+IS_UPGRADE=false
+if [ -f /raweb/apps/mariadb/data/mysql/user.MYD ] || [ -f /raweb/apps/mariadb/data/mysql/user.frm ] || [ -d /raweb/apps/mariadb/data/mysql ]; then
+    IS_UPGRADE=true
+    echo "Existing MariaDB installation detected. Performing upgrade..."
+fi
+
+# Only initialize if data directory is empty (fresh install)
+if [ "$IS_UPGRADE" = "false" ] && ([ ! -d /raweb/apps/mariadb/data/mysql ] || [ -z "$(ls -A /raweb/apps/mariadb/data/mysql 2>/dev/null)" ]); then
+    echo "Fresh installation detected. Initializing MariaDB data directory..."
     mkdir -p /raweb/apps/mariadb/data
     chown -R raweb: /raweb/apps/mariadb/data
     sudo -u raweb /raweb/apps/mariadb/core/scripts/mariadb-install-db \
       --basedir=/raweb/apps/mariadb/core \
       --datadir=/raweb/apps/mariadb/data \
       --user=raweb
+      
+    FRESH_INSTALL=true
+else
+    echo "Preserving existing data directory for upgrade..."
+    FRESH_INSTALL=false
+    # Ensure proper ownership for existing data
+    chown -R raweb: /raweb/apps/mariadb/data 2>/dev/null || true
 fi
 
-    systemctl daemon-reload || true
-    systemctl enable raweb-mariadb || true
+# Reload systemd and enable service
+systemctl daemon-reload || true
+systemctl enable raweb-mariadb || true
+
+# Start or restart the service
+if [ "$IS_UPGRADE" = "true" ]; then
+    echo "Restarting MariaDB service after upgrade..."
     systemctl restart raweb-mariadb || true
-    for i in {1..60}; do
-      if /raweb/apps/mariadb/core/bin/mariadb \
-          --socket=/raweb/apps/mariadb/data/mariadb.sock \
-          -u root -e "SELECT 1;" &>/dev/null; then
-        echo "MariaDB is up."
-        break
-      fi
-      echo "Waiting for MariaDB to be ready..."
-      sleep 1
-    done
+else
+    echo "Starting MariaDB service for fresh installation..."
+    systemctl start raweb-mariadb || true
+fi
+
+# Wait for MariaDB to be ready
+for i in {1..60}; do
+  if /raweb/apps/mariadb/core/bin/mariadb \
+      --socket=/raweb/apps/mariadb/data/mariadb.sock \
+      -u root -e "SELECT 1;" &>/dev/null; then
+    echo "MariaDB is up."
+    break
+  fi
+  echo "Waiting for MariaDB to be ready..."
+  sleep 1
+done
+
+# Only configure for fresh installs
+if [ "$FRESH_INSTALL" = "true" ]; then
+    echo "Configuring fresh MariaDB installation..."
+    
     # Generate random root password
     ROOT_PASSWORD=$(openssl rand -base64 32)
 
@@ -206,12 +303,26 @@ MYCNF
     fi
     echo "$(date): MariaDB Root Password: $ROOT_PASSWORD" >> /raweb/apps/mariadb/data/root_password.log
     chmod 600 /raweb/apps/mariadb/data/root_password.log
+    
+    echo "Fresh MariaDB installation completed successfully."
+else
+    echo "MariaDB upgrade completed successfully. Existing configuration and data preserved."
+    
+    # For upgrades, we might want to run mysql_upgrade to update system tables
+    if command -v /raweb/apps/mariadb/core/bin/mariadb-upgrade >/dev/null 2>&1; then
+        echo "Running mariadb-upgrade to update system tables..."
+        /raweb/apps/mariadb/core/bin/mariadb-upgrade --socket=/raweb/apps/mariadb/data/mariadb.sock --force 2>/dev/null || true
+    fi
+fi
 
 exit 0
 EOF
 # ====================================================================================
 chmod 755 "$DEB_ROOT/DEBIAN"
 chmod 755 "$DEB_ROOT/DEBIAN/control"
+chmod 755 "$DEB_ROOT/DEBIAN/preinst"
+chmod 755 "$DEB_ROOT/DEBIAN/prerm"
+chmod 755 "$DEB_ROOT/DEBIAN/postrm"
 chmod 755 "$DEB_ROOT/DEBIAN/postinst"
 # ====================================================================================
 DEB_PACKAGE_FILE="$DEB_BUILD_DIR/${DEB_PACKAGE_NAME}_${SQL_PACK_VERSION}_${BUILD_CODE}_${DEB_ARCH}.deb"

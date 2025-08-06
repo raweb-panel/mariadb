@@ -13,26 +13,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: alma9
-            image: almalinux:9
-            code: el9
-            repo: alma
-            folder: packages
-            script: .github/scripts/rpm/alma/9.sh
-
           - name: debian12
             image: debian:12
             code: bookworm
             repo: debian
             folder: packages
-            script: .github/scripts/deb/debian/12.sh
+            script: ./.github/scripts/deb/debian/12.sh
 
           - name: ubuntu2404
             image: ubuntu:24.04
             code: noble
             repo: ubuntu
             folder: packages
-            script: .github/scripts/deb/ubuntu/24.04.sh
+            script: ./.github/scripts/deb/ubuntu/24.04.sh
 
     container:
       image: ${{ matrix.image }}

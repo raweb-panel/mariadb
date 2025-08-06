@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e
-# ====================================================================================
 if [ -z "$UPLOAD_USER" ] || [ -z "$UPLOAD_PASS" ]; then
     echo "Missing UPLOAD_USER or UPLOAD_PASS"
     exit 1
@@ -33,7 +32,7 @@ if curl -s "$DEB_REPO_URL" | grep -q "$DEB_PACKAGE_FILE_NAME"; then
     exit 0
 fi
 # ====================================================================================
-echo "Installing requirements..." && apt-get install -y build-essential cmake libssl-dev libpcre2-dev bison libreadline-dev zlib1g-dev libpcre3-dev libncurses-dev libaio-dev libcurl4-openssl-dev pkg-config git sudo wget curl zip unzip jq rsync >/dev/null 2>&1
+echo "Installing requirements..." && apt-get install -y build-essential cmake libssl-dev libpcre2-dev bison libreadline-dev zlib1g-dev libpcre3-dev libncurses5-dev libncursesw5-dev libaio-dev libcurl4-openssl-dev pkg-config git sudo wget zip unzip jq rsync >/dev/null 2>&1
 # ====================================================================================
 git clone --depth=1 --branch $SQL_VERSION_MAJOR https://github.com/MariaDB/server.git > /dev/null 2>&1
 cd server/; git submodule update --init --recursive > /dev/null 2>&1
@@ -61,7 +60,6 @@ make install > /dev/null 2>&1
 # ====================================================================================
 mkdir -p /raweb/apps/mariadb/data
 chown -R raweb: /raweb/apps/mariadb/data
-# ====================================================================================
 cat > /raweb/apps/mariadb/core/my.cnf <<EOF
 [client]
 socket=/raweb/apps/mariadb/data/mariadb.sock
@@ -179,7 +177,7 @@ Priority: optional
 Architecture: $DEB_ARCH
 Maintainer: Raweb Panel <cd@julio.al>
 Description: Custom MariaDB $SQL_PACK_VERSION for Raweb Panel.
-Depends: libssl3t64, libreadline8t64, zlib1g, libpcre3, libncurses6, libaio1t64, libcurl4t64, libpcre2-dev
+Depends: libssl1.1, libreadline8, zlib1g, libpcre3, libncurses6, libaio1, libcurl4, libpcre2-dev
 EOF
 # ====================================================================================
 cat > "$DEB_ROOT/DEBIAN/postinst" <<'EOF'
