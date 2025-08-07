@@ -208,6 +208,7 @@ else
     FRESH_INSTALL=false
     # Ensure proper ownership for existing data
     chown -R raweb: /raweb/apps/mariadb/data 2>/dev/null || true
+    chown -R raweb: /raweb/apps/mariadb/core 2>/dev/null || true
 fi
 
 # Reload systemd and enable service
@@ -216,23 +217,40 @@ systemctl enable raweb-mariadb || true
 
 # Start or restart the service
 if [ "$IS_UPGRADE" = "true" ]; then
-    echo "Restarting MariaDB service after upgrade..."
-    systemctl restart raweb-mariadb || true
+    echo "Starting MariaDB service after upgrade..."
+    # Kill any lingering processes first
+    pkill -f mariadbd 2>/dev/null || true
+    sleep 2
+    systemctl start raweb-mariadb || true
 else
     echo "Starting MariaDB service for fresh installation..."
     systemctl start raweb-mariadb || true
 fi
 
-# Wait for MariaDB to be ready
-for i in {1..60}; do
+# Wait for MariaDB to be ready with better error handling
+echo "Waiting for MariaDB to start..."
+RETRIES=0
+MAX_RETRIES=30
+while [ $RETRIES -lt $MAX_RETRIES ]; do
   if /raweb/apps/mariadb/core/bin/mariadb \
       --socket=/raweb/apps/mariadb/data/mariadb.sock \
       -u root -e "SELECT 1;" &>/dev/null; then
-    echo "MariaDB is up."
+    echo "MariaDB is ready."
     break
   fi
-  echo "Waiting for MariaDB to be ready..."
-  sleep 1
+  
+  RETRIES=$((RETRIES + 1))
+  if [ $RETRIES -eq $MAX_RETRIES ]; then
+    echo "ERROR: MariaDB failed to start after $MAX_RETRIES attempts."
+    echo "Checking service status and logs..."
+    systemctl status raweb-mariadb --no-pager || true
+    echo "=== Error Log ==="
+    tail -20 /raweb/apps/mariadb/data/mysqld.log 2>/dev/null || echo "No error log found"
+    exit 1
+  fi
+  
+  echo "Waiting for MariaDB... (attempt $RETRIES/$MAX_RETRIES)"
+  sleep 2
 done
 
 # Only configure for fresh installs
@@ -308,10 +326,14 @@ MYCNF
 else
     echo "MariaDB upgrade completed successfully. Existing configuration and data preserved."
     
-    # For upgrades, we might want to run mysql_upgrade to update system tables
+    # For upgrades, run mariadb-upgrade to update system tables
     if command -v /raweb/apps/mariadb/core/bin/mariadb-upgrade >/dev/null 2>&1; then
         echo "Running mariadb-upgrade to update system tables..."
-        /raweb/apps/mariadb/core/bin/mariadb-upgrade --defaults-file=/raweb/.my.cnf --force 2>/dev/null || true
+        if [ -f /raweb/.my.cnf ]; then
+            /raweb/apps/mariadb/core/bin/mariadb-upgrade --defaults-file=/raweb/.my.cnf --force 2>/dev/null || echo "Warning: mariadb-upgrade failed, but continuing..."
+        else
+            echo "Warning: No .my.cnf found, skipping mariadb-upgrade..."
+        fi
     fi
 fi
 
